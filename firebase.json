@@ -1,0 +1,6 @@
+{
+  "firestore": {
+    "database": "ai-studio-sigijewelrymanuf-940c2757-2772-4107-b989-812127d6c530",
+    "rules": "firestore.rules"
+  }
+}

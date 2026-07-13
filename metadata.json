@@ -1,0 +1,6 @@
+{
+  "name": "SIGI Jewelry Manufacturing ERP",
+  "description": "Professional Jewelry Manufacturing Order Tracking and ERP system. Track CAD, Casting, Filing, Setting, and Quality Control with automated status, metrics, and PDF/Excel reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

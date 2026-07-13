@@ -1,0 +1,66 @@
+{
+  "entities": {
+    "Order": {
+      "title": "Order",
+      "description": "A jewelry manufacturing production order.",
+      "type": "object",
+      "properties": {
+        "sigiOrderNumber": { "type": "string" },
+        "orderDate": { "type": "string" },
+        "expectedShippingDate": { "type": "string" },
+        "clientCode": { "type": "string" },
+        "clientOrderRef": { "type": "string" },
+        "urgent": { "type": "boolean" },
+        "sigiStyleNumber": { "type": "string" },
+        "sigiSkuNumber": { "type": "string" },
+        "metalType": { "type": "string" },
+        "ringSize": { "type": "string" },
+        "centerStoneSize": { "type": "string" },
+        "centerStoneShape": { "type": "string" },
+        "centerStoneRequired": { "type": "boolean" },
+        "stylePicture": { "type": "string" },
+        "stonePicture": { "type": "string" },
+        "productionNotes": { "type": "string" },
+        "factoryNotes": { "type": "string" },
+        "stampLaser": { "type": "string" },
+        "factoryOrderNumber": { "type": "string" },
+        "factorySerialNumber": { "type": "string" },
+        "orderQuantity": { "type": "number" },
+        "itemsCompleted": { "type": "number" },
+        "remarks": { "type": "string" },
+        "status": { "type": "string" },
+        "currentStage": { "type": "string" },
+        "stages": { "type": "object" },
+        "attachments": { "type": "array" }
+      },
+      "required": ["sigiOrderNumber", "orderDate", "expectedShippingDate"]
+    },
+    "ActivityLog": {
+      "title": "ActivityLog",
+      "description": "A system audit log tracking production updates and user activities.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "userRole": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "action": { "type": "string" },
+        "orderNumber": { "type": "string" },
+        "field": { "type": "string" },
+        "oldValue": { "type": "string" },
+        "newValue": { "type": "string" }
+      },
+      "required": ["id", "username", "timestamp", "action", "orderNumber"]
+    }
+  },
+  "firestore": {
+    "orders/{orderId}": {
+      "schema": "Order",
+      "description": "Manufacturing orders collection"
+    },
+    "logs/{logId}": {
+      "schema": "ActivityLog",
+      "description": "System activity logs collection"
+    }
+  }
+}
