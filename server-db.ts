@@ -10,16 +10,24 @@ const DEFAULT_STONE_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org
 
 import { fileURLToPath } from "url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+let currentDir = process.cwd();
+try {
+  if (typeof __dirname !== "undefined") {
+    currentDir = __dirname;
+  } else if (typeof import.meta !== "undefined" && import.meta.url) {
+    currentDir = path.dirname(fileURLToPath(import.meta.url));
+  }
+} catch (e) {
+  // Safe fallback
+}
 
 const DB_FILE = path.join(process.cwd(), "data", "db.json");
 
 // Read Firebase Config
 let config: any = {};
 try {
-  // Check relative to __dirname first (best for Vercel/bundling tracing), then fallback
-  const preferredConfigPath = path.join(__dirname, "firebase-applet-config.json");
+  // Check relative to currentDir first, then fallback
+  const preferredConfigPath = path.join(currentDir, "firebase-applet-config.json");
   const fallbackConfigPath = "./firebase-applet-config.json";
   const finalConfigPath = fs.existsSync(preferredConfigPath)
     ? preferredConfigPath
