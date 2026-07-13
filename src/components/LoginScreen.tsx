@@ -54,15 +54,33 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         body: JSON.stringify({ username, password }),
       });
 
+      // Handle Redirection Errors during deployment
+      if (response.redirected) {
+        console.warn("Redirection detected during login to:", response.url);
+        setError('A secure HTTPS or routing redirect was detected. Please ensure you are logged in or reload the page.');
+        setLoading(false);
+        return;
+      }
+
+      // Handle unexpected non-JSON (e.g. HTML error/redirect pages)
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const textResponse = await response.text();
+        console.error("Non-JSON auth response received:", textResponse.substring(0, 150));
+        setError('Received an unexpected non-JSON response from the server. This may indicate a deployment redirection, gateway routing issue, or missing API resource.');
+        setLoading(false);
+        return;
+      }
+
       const data = await response.json();
       if (response.ok && data.success) {
         onLoginSuccess(data.user);
       } else {
         setError(data.message || 'Invalid username or password.');
       }
-    } catch (err) {
-      console.error(err);
-      setError('Failed to connect to the server. Please verify the backend is running.');
+    } catch (err: any) {
+      console.error("Login request failed:", err);
+      setError(`Failed to authenticate due to a connection or formatting issue: ${err?.message || 'Server did not respond correctly.'}`);
     } finally {
       setLoading(false);
     }
@@ -91,6 +109,23 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         }),
       });
 
+      // Handle Redirection Errors during deployment
+      if (response.redirected) {
+        console.warn("Redirection detected during registration to:", response.url);
+        setError('Registration request was redirected. Please check your network connection.');
+        setLoading(false);
+        return;
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const textResponse = await response.text();
+        console.error("Non-JSON registration response received:", textResponse.substring(0, 150));
+        setError('Received an unexpected non-JSON response from the server during registration.');
+        setLoading(false);
+        return;
+      }
+
       const data = await response.json();
       if (response.ok && data.success) {
         setSuccessMessage('Account created successfully! You can now sign in.');
@@ -104,9 +139,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       } else {
         setError(data.message || 'Failed to create account.');
       }
-    } catch (err) {
-      console.error(err);
-      setError('Failed to register. Please verify connection.');
+    } catch (err: any) {
+      console.error("Registration request failed:", err);
+      setError(`Failed to register due to a connection or formatting issue: ${err?.message || 'Server did not respond.'}`);
     } finally {
       setLoading(false);
     }
@@ -134,6 +169,23 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         }),
       });
 
+      // Handle Redirection Errors during deployment
+      if (response.redirected) {
+        console.warn("Redirection detected during password change to:", response.url);
+        setError('Password change request was redirected. Please check your network connection.');
+        setLoading(false);
+        return;
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const textResponse = await response.text();
+        console.error("Non-JSON password change response received:", textResponse.substring(0, 150));
+        setError('Received an unexpected non-JSON response from the server during password change.');
+        setLoading(false);
+        return;
+      }
+
       const data = await response.json();
       if (response.ok && data.success) {
         setSuccessMessage('Password updated successfully! Please sign in.');
@@ -147,9 +199,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       } else {
         setError(data.message || 'Failed to change password. Double check username/current password.');
       }
-    } catch (err) {
-      console.error(err);
-      setError('Failed to change password. Please verify connection.');
+    } catch (err: any) {
+      console.error("Password change request failed:", err);
+      setError(`Failed to change password due to a connection or formatting issue: ${err?.message || 'Server did not respond.'}`);
     } finally {
       setLoading(false);
     }

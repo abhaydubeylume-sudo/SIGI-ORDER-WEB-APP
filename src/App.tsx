@@ -66,6 +66,21 @@ export default function App() {
       ]);
 
       if (ordersRes.ok && logsRes.ok) {
+        // Safe check for redirects
+        if (ordersRes.redirected || logsRes.redirected) {
+          console.warn("Redirection detected during DB sync. Logging out for safety.");
+          handleLogout();
+          return;
+        }
+
+        // Safe check for content-type
+        const ordersType = ordersRes.headers.get('content-type') || '';
+        const logsType = logsRes.headers.get('content-type') || '';
+        if (!ordersType.includes('application/json') || !logsType.includes('application/json')) {
+          console.error("Received unexpected non-JSON response during synchronization.");
+          return;
+        }
+
         const ordersData = await ordersRes.json();
         const logsData = await logsRes.json();
         setOrders(ordersData);
