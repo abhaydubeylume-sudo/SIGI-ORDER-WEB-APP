@@ -8,15 +8,25 @@ import { Order, ActivityLog, StageName, ProductionStage, User } from "./src/type
 const DEFAULT_STYLE_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100" fill="none"><circle cx="50" cy="65" r="22" stroke="%2364748b" stroke-width="4"/><path d="M50 43 L40 33 L50 23 L60 33 Z" fill="%2393c5fd" stroke="%232563eb" stroke-width="2"/><circle cx="50" cy="33" r="3" fill="%23ffffff" stroke="%232563eb"/><path d="M43 43 L57 43" stroke="%232563eb" stroke-width="2"/></svg>`;
 const DEFAULT_STONE_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100" fill="none"><path d="M20 35 L35 15 L65 15 L80 35 L50 85 Z" fill="%23dbeafe" stroke="%232563eb" stroke-width="2"/><path d="M35 15 L50 35 M65 15 L50 35 M20 35 L50 35 M80 35 L50 35 M35 15 L65 15 M50 35 L50 85 M20 35 L50 85 M80 35 L50 85" stroke="%233b82f6" stroke-width="1"/></svg>`;
 
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const DB_FILE = path.join(process.cwd(), "data", "db.json");
 
 // Read Firebase Config
 let config: any = {};
 try {
-  const configPath = fs.existsSync("./firebase-applet-config.json") 
-    ? "./firebase-applet-config.json"
-    : path.join(process.cwd(), "firebase-applet-config.json");
-  config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+  // Check relative to __dirname first (best for Vercel/bundling tracing), then fallback
+  const preferredConfigPath = path.join(__dirname, "firebase-applet-config.json");
+  const fallbackConfigPath = "./firebase-applet-config.json";
+  const finalConfigPath = fs.existsSync(preferredConfigPath)
+    ? preferredConfigPath
+    : (fs.existsSync(fallbackConfigPath) ? fallbackConfigPath : path.join(process.cwd(), "firebase-applet-config.json"));
+
+  console.log("Loading firebase config from path:", finalConfigPath);
+  config = JSON.parse(fs.readFileSync(finalConfigPath, "utf-8"));
 } catch (e) {
   console.error("Failed to read firebase-applet-config.json:", e);
 }
@@ -229,34 +239,42 @@ const SEED_ORDERS: Order[] = [
 let useLocalFallback = false;
 
 const DB_DIR = path.dirname(DB_FILE);
-if (!fs.existsSync(DB_DIR)) {
-  fs.mkdirSync(DB_DIR, { recursive: true });
+try {
+  if (!fs.existsSync(DB_DIR)) {
+    fs.mkdirSync(DB_DIR, { recursive: true });
+  }
+} catch (e) {
+  console.warn("Could not create local DB directory (might be on read-only serverless environment):", e);
 }
 
 function readLocalDb(): { orders: Order[]; logs: ActivityLog[]; users: User[] } {
-  if (!fs.existsSync(DB_FILE)) {
-    const data = {
-      orders: SEED_ORDERS,
-      logs: [
-        {
-          id: "log_1",
-          username: "admin",
-          userRole: "Admin" as const,
-          timestamp: "2026-07-01T09:00:00Z",
-          action: "SYSTEM_INIT",
-          orderNumber: "ALL",
-          newValue: "Database seeded with 5 initial orders and configuration."
-        }
-      ],
-      users: [
-        { username: "admin", name: "Sarah Jenkins (Admin)", role: "Admin" as const, password: "adminsigi" },
-        { username: "sales", name: "Marcus Brody (Sales)", role: "Sales" as const, password: "sales123" }
-      ]
-    };
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
-    return data;
-  }
   try {
+    if (!fs.existsSync(DB_FILE)) {
+      const data = {
+        orders: SEED_ORDERS,
+        logs: [
+          {
+            id: "log_1",
+            username: "admin",
+            userRole: "Admin" as const,
+            timestamp: "2026-07-01T09:00:00Z",
+            action: "SYSTEM_INIT",
+            orderNumber: "ALL",
+            newValue: "Database seeded with 5 initial orders and configuration."
+          }
+        ],
+        users: [
+          { username: "admin", name: "Sarah Jenkins (Admin)", role: "Admin" as const, password: "adminsigi" },
+          { username: "sales", name: "Marcus Brody (Sales)", role: "Sales" as const, password: "sales123" }
+        ]
+      };
+      try {
+        fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+      } catch (writeErr) {
+        console.warn("Could not write initial local DB file (read-only filesystem):", writeErr);
+      }
+      return data;
+    }
     const fileContent = fs.readFileSync(DB_FILE, "utf-8");
     const parsed = JSON.parse(fileContent);
     if (!parsed.users) {
@@ -267,7 +285,7 @@ function readLocalDb(): { orders: Order[]; logs: ActivityLog[]; users: User[] } 
     }
     return parsed;
   } catch (err) {
-    console.error("Failed to read local DB file, fallback to seed", err);
+    console.warn("Failed to read local DB file, fallback to in-memory seed:", err);
     return {
       orders: SEED_ORDERS,
       logs: [],
@@ -283,7 +301,7 @@ function writeLocalDb(data: { orders: Order[]; logs: ActivityLog[]; users: User[
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
   } catch (err) {
-    console.error("Failed to write local DB file", err);
+    console.warn("Failed to write local DB file (read-only filesystem):", err);
   }
 }
 
