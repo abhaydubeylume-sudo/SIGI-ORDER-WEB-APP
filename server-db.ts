@@ -23,8 +23,17 @@ try {
 
 const DB_FILE = path.join(process.cwd(), "data", "db.json");
 
-// Read Firebase Config
-let config: any = {};
+// Read Firebase Config with robust built-in default fallback
+let config: any = {
+  projectId: "gen-lang-client-0216449585",
+  appId: "1:54693547741:web:ed3b6eb9a03a4020b8d534",
+  apiKey: "AIzaSyBJL8juPWwPNxXhr5ByTDig5HdZl7AaexU",
+  authDomain: "gen-lang-client-0216449585.firebaseapp.com",
+  firestoreDatabaseId: "ai-studio-sigijewelrymanuf-940c2757-2772-4107-b989-812127d6c530",
+  storageBucket: "gen-lang-client-0216449585.firebasestorage.app",
+  messagingSenderId: "54693547741"
+};
+
 try {
   // Check relative to currentDir first, then fallback
   const preferredConfigPath = path.join(currentDir, "firebase-applet-config.json");
@@ -33,10 +42,15 @@ try {
     ? preferredConfigPath
     : (fs.existsSync(fallbackConfigPath) ? fallbackConfigPath : path.join(process.cwd(), "firebase-applet-config.json"));
 
-  console.log("Loading firebase config from path:", finalConfigPath);
-  config = JSON.parse(fs.readFileSync(finalConfigPath, "utf-8"));
+  if (fs.existsSync(finalConfigPath)) {
+    console.log("Loading firebase config from path:", finalConfigPath);
+    const fileConfig = JSON.parse(fs.readFileSync(finalConfigPath, "utf-8"));
+    config = { ...config, ...fileConfig };
+  } else {
+    console.log("firebase-applet-config.json not found. Using built-in fallback configuration.");
+  }
 } catch (e) {
-  console.error("Failed to read firebase-applet-config.json:", e);
+  console.warn("Could not read firebase-applet-config.json, using robust fallback config:", e);
 }
 
 const firebaseConfig = {
