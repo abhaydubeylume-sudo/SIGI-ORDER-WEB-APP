@@ -51,6 +51,18 @@
         "newValue": { "type": "string" }
       },
       "required": ["id", "username", "timestamp", "action", "orderNumber"]
+    },
+    "User": {
+      "title": "User",
+      "description": "An authenticated user of the ERP system.",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "password": { "type": "string" }
+      },
+      "required": ["username", "name", "role", "password"]
     }
   },
   "firestore": {
@@ -61,6 +73,10 @@
     "logs/{logId}": {
       "schema": "ActivityLog",
       "description": "System activity logs collection"
+    },
+    "users/{userId}": {
+      "schema": "User",
+      "description": "ERP system users collection"
     }
   }
 }

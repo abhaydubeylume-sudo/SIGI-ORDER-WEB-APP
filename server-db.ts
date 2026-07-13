@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, setDoc, getDoc, getDocs, deleteDoc, collection, limit, query } from "firebase/firestore";
-import { Order, ActivityLog, StageName, ProductionStage } from "./src/types";
+import { Order, ActivityLog, StageName, ProductionStage, User } from "./src/types";
 
 // Standard vector illustrations for default jewelry styles and center stones
 const DEFAULT_STYLE_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100" fill="none"><circle cx="50" cy="65" r="22" stroke="%2364748b" stroke-width="4"/><path d="M50 43 L40 33 L50 23 L60 33 Z" fill="%2393c5fd" stroke="%232563eb" stroke-width="2"/><circle cx="50" cy="33" r="3" fill="%23ffffff" stroke="%232563eb"/><path d="M43 43 L57 43" stroke="%232563eb" stroke-width="2"/></svg>`;
@@ -13,7 +13,10 @@ const DB_FILE = path.join(process.cwd(), "data", "db.json");
 // Read Firebase Config
 let config: any = {};
 try {
-  config = JSON.parse(fs.readFileSync("./firebase-applet-config.json", "utf-8"));
+  const configPath = fs.existsSync("./firebase-applet-config.json") 
+    ? "./firebase-applet-config.json"
+    : path.join(process.cwd(), "firebase-applet-config.json");
+  config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
 } catch (e) {
   console.error("Failed to read firebase-applet-config.json:", e);
 }
@@ -230,7 +233,7 @@ if (!fs.existsSync(DB_DIR)) {
   fs.mkdirSync(DB_DIR, { recursive: true });
 }
 
-function readLocalDb(): { orders: Order[]; logs: ActivityLog[] } {
+function readLocalDb(): { orders: Order[]; logs: ActivityLog[]; users: User[] } {
   if (!fs.existsSync(DB_FILE)) {
     const data = {
       orders: SEED_ORDERS,
@@ -244,6 +247,10 @@ function readLocalDb(): { orders: Order[]; logs: ActivityLog[] } {
           orderNumber: "ALL",
           newValue: "Database seeded with 5 initial orders and configuration."
         }
+      ],
+      users: [
+        { username: "admin", name: "Sarah Jenkins (Admin)", role: "Admin" as const, password: "adminsigi" },
+        { username: "sales", name: "Marcus Brody (Sales)", role: "Sales" as const, password: "sales123" }
       ]
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
@@ -251,14 +258,28 @@ function readLocalDb(): { orders: Order[]; logs: ActivityLog[] } {
   }
   try {
     const fileContent = fs.readFileSync(DB_FILE, "utf-8");
-    return JSON.parse(fileContent);
+    const parsed = JSON.parse(fileContent);
+    if (!parsed.users) {
+      parsed.users = [
+        { username: "admin", name: "Sarah Jenkins (Admin)", role: "Admin", password: "adminsigi" },
+        { username: "sales", name: "Marcus Brody (Sales)", role: "Sales", password: "sales123" }
+      ];
+    }
+    return parsed;
   } catch (err) {
     console.error("Failed to read local DB file, fallback to seed", err);
-    return { orders: SEED_ORDERS, logs: [] };
+    return {
+      orders: SEED_ORDERS,
+      logs: [],
+      users: [
+        { username: "admin", name: "Sarah Jenkins (Admin)", role: "Admin", password: "adminsigi" },
+        { username: "sales", name: "Marcus Brody (Sales)", role: "Sales", password: "sales123" }
+      ]
+    };
   }
 }
 
-function writeLocalDb(data: { orders: Order[]; logs: ActivityLog[] }) {
+function writeLocalDb(data: { orders: Order[]; logs: ActivityLog[]; users: User[] }) {
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
   } catch (err) {
@@ -269,6 +290,21 @@ function writeLocalDb(data: { orders: Order[]; logs: ActivityLog[] }) {
 export async function initializeFirestoreDb() {
   console.log("Checking and initializing Firestore database...");
   try {
+    // Check and seed users first
+    const usersQ = query(collection(db, "users"), limit(1));
+    const usersSnapshot = await getDocs(usersQ);
+    if (usersSnapshot.empty) {
+      console.log("Firestore database 'users' is empty. Seeding users...");
+      const usersToSeed = [
+        { username: "admin", name: "Sarah Jenkins (Admin)", role: "Admin", password: "adminsigi" },
+        { username: "sales", name: "Marcus Brody (Sales)", role: "Sales", password: "sales123" }
+      ];
+      for (const u of usersToSeed) {
+        await setDoc(doc(db, "users", u.username), u);
+      }
+      console.log(`Seeded ${usersToSeed.length} users in Firestore.`);
+    }
+
     const q = query(collection(db, "orders"), limit(1));
     const snapshot = await getDocs(q);
 
@@ -445,6 +481,75 @@ export async function addLog(log: ActivityLog): Promise<void> {
     useLocalFallback = true;
     const local = readLocalDb();
     local.logs.unshift(log);
+    writeLocalDb(local);
+  }
+}
+
+export async function getUsers(): Promise<User[]> {
+  if (useLocalFallback) {
+    const local = readLocalDb();
+    return local.users || [];
+  }
+  try {
+    const snapshot = await getDocs(collection(db, "users"));
+    const users: User[] = [];
+    snapshot.forEach((doc) => {
+      users.push(doc.data() as User);
+    });
+    return users;
+  } catch (e) {
+    console.error("Firestore getUsers failed, using local database fallback:", e);
+    useLocalFallback = true;
+    const local = readLocalDb();
+    return local.users || [];
+  }
+}
+
+export async function getUser(username: string): Promise<User | null> {
+  if (useLocalFallback) {
+    const local = readLocalDb();
+    return local.users.find(u => u.username.toLowerCase() === username.toLowerCase()) || null;
+  }
+  try {
+    const docSnap = await getDoc(doc(db, "users", username.toLowerCase()));
+    if (docSnap.exists()) {
+      return docSnap.data() as User;
+    }
+    // Fallback search in case case-sensitivity varies
+    const allUsers = await getUsers();
+    return allUsers.find(u => u.username.toLowerCase() === username.toLowerCase()) || null;
+  } catch (e) {
+    console.error(`Firestore getUser(${username}) failed, using local database fallback:`, e);
+    useLocalFallback = true;
+    const local = readLocalDb();
+    return local.users.find(u => u.username.toLowerCase() === username.toLowerCase()) || null;
+  }
+}
+
+export async function saveUser(user: User): Promise<void> {
+  if (useLocalFallback) {
+    const local = readLocalDb();
+    const idx = local.users.findIndex(u => u.username.toLowerCase() === user.username.toLowerCase());
+    if (idx >= 0) {
+      local.users[idx] = user;
+    } else {
+      local.users.push(user);
+    }
+    writeLocalDb(local);
+    return;
+  }
+  try {
+    await setDoc(doc(db, "users", user.username.toLowerCase()), user);
+  } catch (e) {
+    console.error(`Firestore saveUser failed, using local database fallback:`, e);
+    useLocalFallback = true;
+    const local = readLocalDb();
+    const idx = local.users.findIndex(u => u.username.toLowerCase() === user.username.toLowerCase());
+    if (idx >= 0) {
+      local.users[idx] = user;
+    } else {
+      local.users.push(user);
+    }
     writeLocalDb(local);
   }
 }

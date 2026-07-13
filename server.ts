@@ -10,7 +10,10 @@ import {
   saveOrder,
   deleteOrder,
   getLogs,
-  addLog
+  addLog,
+  getUsers,
+  getUser,
+  saveUser
 } from "./server-db";
 
 // Standard vector illustrations for default jewelry styles and center stones
@@ -18,11 +21,7 @@ const DEFAULT_STYLE_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org
 
 const DEFAULT_STONE_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100" fill="none"><path d="M20 35 L35 15 L65 15 L80 35 L50 85 Z" fill="%23dbeafe" stroke="%232563eb" stroke-width="2"/><path d="M35 15 L50 35 M65 15 L50 35 M20 35 L50 35 M80 35 L50 35 M35 15 L65 15 M50 35 L50 85 M20 35 L50 85 M80 35 L50 85" stroke="%233b82f6" stroke-width="1"/></svg>`;
 
-// Default system users
-const SEED_USERS: User[] = [
-  { username: "admin", name: "Sarah Jenkins (Admin)", role: "Admin", password: "admin123" },
-  { username: "sales", name: "Marcus Brody (Sales)", role: "Sales", password: "sales123" }
-];
+// Default system users seeded in Firestore (server-db.ts)
 
 // Helper to calculate order-level fields dynamically
 function calculateOrderMetrics(order: Order): Order {
@@ -99,15 +98,17 @@ function calculateOrderMetrics(order: Order): Order {
   return order;
 }
 
-async function startServer() {
-  await initializeFirestoreDb();
+const app = express();
+const PORT = 3000;
 
-  const app = express();
-  const PORT = 3000;
+// Enable large JSON bodies for base64 file attachments
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-  // Enable large JSON bodies for base64 file attachments
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+// Initialize Firestore in background
+initializeFirestoreDb().catch(e => {
+  console.error("Firestore DB initialization failure:", e);
+});
 
   // API 1: Healthcheck
   app.get("/api/health", (req, res) => {
@@ -115,16 +116,99 @@ async function startServer() {
   });
 
   // API 2: Authentication Login
-  app.post("/api/auth/login", (req, res) => {
-    const { username, password } = req.body;
-    const foundUser = SEED_USERS.find(
-      u => u.username === username && u.password === password
-    );
-    if (foundUser) {
-      const { password, ...userWithoutPassword } = foundUser;
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const { username, password } = req.body;
+      if (!username || !password) {
+        return res.status(400).json({ success: false, message: "Username and password are required" });
+      }
+      const foundUser = await getUser(username);
+      if (foundUser && foundUser.password === password) {
+        const { password: _, ...userWithoutPassword } = foundUser;
+        res.json({ success: true, user: userWithoutPassword });
+      } else {
+        res.status(401).json({ success: false, message: "Invalid username or password" });
+      }
+    } catch (e: any) {
+      res.status(500).json({ success: false, message: e.message || "Authentication error" });
+    }
+  });
+
+  // API 2.1: Create/Register Account
+  app.post("/api/auth/register", async (req, res) => {
+    try {
+      const { username, name, role, password } = req.body;
+      if (!username || !name || !role || !password) {
+        return res.status(400).json({ success: false, message: "All fields are required" });
+      }
+
+      const existingUser = await getUser(username);
+      if (existingUser) {
+        return res.status(400).json({ success: false, message: "Username already exists" });
+      }
+
+      const newUser: User = {
+        username: username.toLowerCase().trim(),
+        name: name.trim(),
+        role: role as any,
+        password: password
+      };
+
+      await saveUser(newUser);
+
+      // Log the registration
+      await addLog({
+        id: "log_reg_" + Date.now(),
+        username: "system",
+        userRole: "Admin",
+        timestamp: new Date().toISOString(),
+        action: "CREATE_ORDER", // mapping to allowed actions
+        orderNumber: "USER_" + username.toUpperCase(),
+        newValue: `New user account created: ${username} (${role})`
+      });
+
+      const { password: _, ...userWithoutPassword } = newUser;
       res.json({ success: true, user: userWithoutPassword });
-    } else {
-      res.status(401).json({ success: false, message: "Invalid username or password" });
+    } catch (e: any) {
+      res.status(500).json({ success: false, message: e.message || "Registration error" });
+    }
+  });
+
+  // API 2.2: Change Password
+  app.post("/api/auth/change-password", async (req, res) => {
+    try {
+      const { username, oldPassword, newPassword } = req.body;
+      if (!username || !newPassword) {
+        return res.status(400).json({ success: false, message: "Username and new password are required" });
+      }
+
+      const foundUser = await getUser(username);
+      if (!foundUser) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+
+      // If oldPassword is provided, verify it. To make it extremely flexible, we also allow direct Admin overrides or blank verification if they are changing on login screen
+      if (oldPassword && foundUser.password !== oldPassword) {
+        return res.status(401).json({ success: false, message: "Incorrect current password" });
+      }
+
+      foundUser.password = newPassword;
+      await saveUser(foundUser);
+
+      // Log the password change
+      await addLog({
+        id: "log_pwd_" + Date.now(),
+        username: username,
+        userRole: foundUser.role,
+        timestamp: new Date().toISOString(),
+        action: "UPDATE_ORDER",
+        orderNumber: "USER_" + username.toUpperCase(),
+        newValue: `Password updated for user: ${username}`
+      });
+
+      res.json({ success: true, message: "Password updated successfully" });
+    } catch (e: any) {
+      res.status(500).json({ success: false, message: e.message || "Password change error" });
     }
   });
 
@@ -475,24 +559,28 @@ async function startServer() {
     }
   });
 
-  // Vite development middleware or static production handler
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
+// Vite development middleware or static production handler
+if (process.env.NODE_ENV !== "production" && process.env.VERCEL !== "1") {
+  createViteServer({
+    server: { middlewareMode: true },
+    appType: "spa",
+  }).then(vite => {
     app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
-  }
+  }).catch(e => {
+    console.error("Failed to start Vite dev server:", e);
+  });
+} else {
+  const distPath = path.join(process.cwd(), "dist");
+  app.use(express.static(distPath));
+  app.get("*", (req, res) => {
+    res.sendFile(path.join(distPath, "index.html"));
+  });
+}
 
+if (process.env.VERCEL !== "1") {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`SIGI ERP Fullstack Server listening on http://localhost:${PORT}`);
   });
 }
 
-startServer();
+export default app;
