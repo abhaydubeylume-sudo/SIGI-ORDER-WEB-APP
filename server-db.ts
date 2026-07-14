@@ -258,73 +258,48 @@ const SEED_ORDERS: Order[] = [
   }
 ];
 
-let useLocalFallback = false;
-
-const DB_DIR = path.dirname(DB_FILE);
-try {
-  if (!fs.existsSync(DB_DIR)) {
-    fs.mkdirSync(DB_DIR, { recursive: true });
-  }
-} catch (e) {
-  console.warn("Could not create local DB directory (might be on read-only serverless environment):", e);
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
 }
 
-function readLocalDb(): { orders: Order[]; logs: ActivityLog[]; users: User[] } {
-  try {
-    if (!fs.existsSync(DB_FILE)) {
-      const data = {
-        orders: SEED_ORDERS,
-        logs: [
-          {
-            id: "log_1",
-            username: "admin",
-            userRole: "Admin" as const,
-            timestamp: "2026-07-01T09:00:00Z",
-            action: "SYSTEM_INIT",
-            orderNumber: "ALL",
-            newValue: "Database seeded with 5 initial orders and configuration."
-          }
-        ],
-        users: [
-          { username: "admin", name: "Sarah Jenkins (Admin)", role: "Admin" as const, password: "adminsigi" },
-          { username: "sales", name: "Marcus Brody (Sales)", role: "Sales" as const, password: "sales123" }
-        ]
-      };
-      try {
-        fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
-      } catch (writeErr) {
-        console.warn("Could not write initial local DB file (read-only filesystem):", writeErr);
-      }
-      return data;
-    }
-    const fileContent = fs.readFileSync(DB_FILE, "utf-8");
-    const parsed = JSON.parse(fileContent);
-    if (!parsed.users) {
-      parsed.users = [
-        { username: "admin", name: "Sarah Jenkins (Admin)", role: "Admin", password: "adminsigi" },
-        { username: "sales", name: "Marcus Brody (Sales)", role: "Sales", password: "sales123" }
-      ];
-    }
-    return parsed;
-  } catch (err) {
-    console.warn("Failed to read local DB file, fallback to in-memory seed:", err);
-    return {
-      orders: SEED_ORDERS,
-      logs: [],
-      users: [
-        { username: "admin", name: "Sarah Jenkins (Admin)", role: "Admin", password: "adminsigi" },
-        { username: "sales", name: "Marcus Brody (Sales)", role: "Sales", password: "sales123" }
-      ]
-    };
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
   }
 }
 
-function writeLocalDb(data: { orders: Order[]; logs: ActivityLog[]; users: User[] }) {
-  try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.warn("Failed to write local DB file (read-only filesystem):", err);
-  }
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: null,
+      email: null,
+      emailVerified: null,
+      isAnonymous: null,
+      tenantId: null,
+      providerInfo: []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
 }
 
 export async function initializeFirestoreDb() {
@@ -363,9 +338,9 @@ export async function initializeFirestoreDb() {
         }
       ];
 
-      // Try migrating from local db.json if exists
-      if (fs.existsSync(DB_FILE)) {
-        try {
+      // Try migrating from local db.json if it exists and we're able to read it
+      try {
+        if (fs.existsSync(DB_FILE)) {
           const fileContent = fs.readFileSync(DB_FILE, "utf-8");
           const localData = JSON.parse(fileContent);
           if (localData && Array.isArray(localData.orders) && localData.orders.length > 0) {
@@ -375,9 +350,9 @@ export async function initializeFirestoreDb() {
               logsToSeed = localData.logs;
             }
           }
-        } catch (err) {
-          console.error("Failed to parse local db.json for migration:", err);
         }
+      } catch (err) {
+        console.warn("Could not read local db.json for migration (expected if local DB is not used):", err);
       }
 
       // Seed orders
@@ -395,18 +370,11 @@ export async function initializeFirestoreDb() {
       console.log("Firestore database already initialized.");
     }
   } catch (e) {
-    console.error("CRITICAL: Failed to initialize Firestore db. Falling back to local file database:", e);
-    useLocalFallback = true;
-    // Ensure directory and seeded file exist
-    readLocalDb();
+    handleFirestoreError(e, OperationType.WRITE, "initialize");
   }
 }
 
 export async function getOrders(): Promise<Order[]> {
-  if (useLocalFallback) {
-    const local = readLocalDb();
-    return local.orders.sort((a, b) => b.sigiOrderNumber.localeCompare(a.sigiOrderNumber));
-  }
   try {
     const snapshot = await getDocs(collection(db, "orders"));
     const orders: Order[] = [];
@@ -415,18 +383,11 @@ export async function getOrders(): Promise<Order[]> {
     });
     return orders.sort((a, b) => b.sigiOrderNumber.localeCompare(a.sigiOrderNumber));
   } catch (e) {
-    console.error("Firestore getOrders failed, using local database fallback:", e);
-    useLocalFallback = true;
-    const local = readLocalDb();
-    return local.orders.sort((a, b) => b.sigiOrderNumber.localeCompare(a.sigiOrderNumber));
+    handleFirestoreError(e, OperationType.GET, "orders");
   }
 }
 
 export async function getOrder(id: string): Promise<Order | null> {
-  if (useLocalFallback) {
-    const local = readLocalDb();
-    return local.orders.find(o => o.sigiOrderNumber === id) || null;
-  }
   try {
     const docSnap = await getDoc(doc(db, "orders", id));
     if (docSnap.exists()) {
@@ -434,64 +395,27 @@ export async function getOrder(id: string): Promise<Order | null> {
     }
     return null;
   } catch (e) {
-    console.error(`Firestore getOrder(${id}) failed, using local database fallback:`, e);
-    useLocalFallback = true;
-    const local = readLocalDb();
-    return local.orders.find(o => o.sigiOrderNumber === id) || null;
+    handleFirestoreError(e, OperationType.GET, `orders/${id}`);
   }
 }
 
 export async function saveOrder(order: Order): Promise<void> {
-  if (useLocalFallback) {
-    const local = readLocalDb();
-    const index = local.orders.findIndex(o => o.sigiOrderNumber === order.sigiOrderNumber);
-    if (index > -1) {
-      local.orders[index] = order;
-    } else {
-      local.orders.unshift(order);
-    }
-    writeLocalDb(local);
-    return;
-  }
   try {
     await setDoc(doc(db, "orders", order.sigiOrderNumber), order);
   } catch (e) {
-    console.error(`Firestore saveOrder failed, using local database fallback:`, e);
-    useLocalFallback = true;
-    const local = readLocalDb();
-    const index = local.orders.findIndex(o => o.sigiOrderNumber === order.sigiOrderNumber);
-    if (index > -1) {
-      local.orders[index] = order;
-    } else {
-      local.orders.unshift(order);
-    }
-    writeLocalDb(local);
+    handleFirestoreError(e, OperationType.WRITE, `orders/${order.sigiOrderNumber}`);
   }
 }
 
 export async function deleteOrder(id: string): Promise<void> {
-  if (useLocalFallback) {
-    const local = readLocalDb();
-    local.orders = local.orders.filter(o => o.sigiOrderNumber !== id);
-    writeLocalDb(local);
-    return;
-  }
   try {
     await deleteDoc(doc(db, "orders", id));
   } catch (e) {
-    console.error(`Firestore deleteOrder(${id}) failed, using local database fallback:`, e);
-    useLocalFallback = true;
-    const local = readLocalDb();
-    local.orders = local.orders.filter(o => o.sigiOrderNumber !== id);
-    writeLocalDb(local);
+    handleFirestoreError(e, OperationType.DELETE, `orders/${id}`);
   }
 }
 
 export async function getLogs(): Promise<ActivityLog[]> {
-  if (useLocalFallback) {
-    const local = readLocalDb();
-    return local.logs.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-  }
   try {
     const snapshot = await getDocs(collection(db, "logs"));
     const logs: ActivityLog[] = [];
@@ -500,36 +424,19 @@ export async function getLogs(): Promise<ActivityLog[]> {
     });
     return logs.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   } catch (e) {
-    console.error("Firestore getLogs failed, using local database fallback:", e);
-    useLocalFallback = true;
-    const local = readLocalDb();
-    return local.logs.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+    handleFirestoreError(e, OperationType.GET, "logs");
   }
 }
 
 export async function addLog(log: ActivityLog): Promise<void> {
-  if (useLocalFallback) {
-    const local = readLocalDb();
-    local.logs.unshift(log);
-    writeLocalDb(local);
-    return;
-  }
   try {
     await setDoc(doc(db, "logs", log.id), log);
   } catch (e) {
-    console.error(`Firestore addLog failed, using local database fallback:`, e);
-    useLocalFallback = true;
-    const local = readLocalDb();
-    local.logs.unshift(log);
-    writeLocalDb(local);
+    handleFirestoreError(e, OperationType.WRITE, `logs/${log.id}`);
   }
 }
 
 export async function getUsers(): Promise<User[]> {
-  if (useLocalFallback) {
-    const local = readLocalDb();
-    return local.users || [];
-  }
   try {
     const snapshot = await getDocs(collection(db, "users"));
     const users: User[] = [];
@@ -538,18 +445,11 @@ export async function getUsers(): Promise<User[]> {
     });
     return users;
   } catch (e) {
-    console.error("Firestore getUsers failed, using local database fallback:", e);
-    useLocalFallback = true;
-    const local = readLocalDb();
-    return local.users || [];
+    handleFirestoreError(e, OperationType.GET, "users");
   }
 }
 
 export async function getUser(username: string): Promise<User | null> {
-  if (useLocalFallback) {
-    const local = readLocalDb();
-    return local.users.find(u => u.username.toLowerCase() === username.toLowerCase()) || null;
-  }
   try {
     const docSnap = await getDoc(doc(db, "users", username.toLowerCase()));
     if (docSnap.exists()) {
@@ -559,38 +459,15 @@ export async function getUser(username: string): Promise<User | null> {
     const allUsers = await getUsers();
     return allUsers.find(u => u.username.toLowerCase() === username.toLowerCase()) || null;
   } catch (e) {
-    console.error(`Firestore getUser(${username}) failed, using local database fallback:`, e);
-    useLocalFallback = true;
-    const local = readLocalDb();
-    return local.users.find(u => u.username.toLowerCase() === username.toLowerCase()) || null;
+    handleFirestoreError(e, OperationType.GET, `users/${username}`);
   }
 }
 
 export async function saveUser(user: User): Promise<void> {
-  if (useLocalFallback) {
-    const local = readLocalDb();
-    const idx = local.users.findIndex(u => u.username.toLowerCase() === user.username.toLowerCase());
-    if (idx >= 0) {
-      local.users[idx] = user;
-    } else {
-      local.users.push(user);
-    }
-    writeLocalDb(local);
-    return;
-  }
   try {
     await setDoc(doc(db, "users", user.username.toLowerCase()), user);
   } catch (e) {
-    console.error(`Firestore saveUser failed, using local database fallback:`, e);
-    useLocalFallback = true;
-    const local = readLocalDb();
-    const idx = local.users.findIndex(u => u.username.toLowerCase() === user.username.toLowerCase());
-    if (idx >= 0) {
-      local.users[idx] = user;
-    } else {
-      local.users.push(user);
-    }
-    writeLocalDb(local);
+    handleFirestoreError(e, OperationType.WRITE, `users/${user.username}`);
   }
 }
 
