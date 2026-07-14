@@ -107,8 +107,38 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // Vercel path normalization middleware to ensure robust Express route matching
 app.use((req, res, next) => {
-  if (req.url && !req.url.startsWith("/api")) {
-    req.url = `/api${req.url}`;
+  console.log(`[Server] Incoming request: ${req.method} ${req.url}`);
+  
+  if (req.url) {
+    // 1. If we are running on Vercel, we must ensure the path starts with /api
+    // and strip any Vercel-injected serverless function prefixes (like api/index.ts)
+    if (process.env.VERCEL === "1") {
+      let cleanUrl = req.url;
+      // Strip any serverless function patterns (e.g. /api/index.ts/auth/login or /api/index/auth/login)
+      cleanUrl = cleanUrl.replace(/^\/api\/index\.(ts|js|cjs|mjs|json)/i, "");
+      cleanUrl = cleanUrl.replace(/^\/api\/index/i, "");
+      
+      // Ensure the URL begins with /api
+      if (!cleanUrl.startsWith("/api")) {
+        if (cleanUrl.startsWith("/")) {
+          cleanUrl = `/api${cleanUrl}`;
+        } else {
+          cleanUrl = `/api/${cleanUrl}`;
+        }
+      }
+      
+      // Standardize trailing/multiple slashes
+      cleanUrl = cleanUrl.replace(/\/+/g, "/");
+      
+      console.log(`[Vercel Serverless] Normalized req.url from ${req.url} to ${cleanUrl}`);
+      req.url = cleanUrl;
+    } else {
+      // 2. If running locally/in container, we do NOT want to normalize static assets.
+      // But we can clean up any double slashes in API calls.
+      if (req.url.startsWith("/api")) {
+        req.url = req.url.replace(/\/+/g, "/");
+      }
+    }
   }
   next();
 });
