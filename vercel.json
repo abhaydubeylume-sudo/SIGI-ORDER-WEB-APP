@@ -1,15 +1,12 @@
 {
   "version": 2,
-  "routes": [
+  "rewrites": [
     {
       "src": "/api/(.*)",
-      "dest": "/api/index.ts"
+      "dest": "/api"
     },
     {
-      "handle": "filesystem"
-    },
-    {
-      "src": "/(.*)",
+      "src": "/((?!api).*)$",
       "dest": "/index.html"
     }
   ]

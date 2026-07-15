@@ -23,15 +23,15 @@ try {
 
 const DB_FILE = path.join(process.cwd(), "data", "db.json");
 
-// Read Firebase Config with robust built-in default fallback
+// Read Firebase Config with robust built-in default fallback, supporting optional environment variables
 let config: any = {
-  projectId: "gen-lang-client-0216449585",
-  appId: "1:54693547741:web:ed3b6eb9a03a4020b8d534",
-  apiKey: "AIzaSyBJL8juPWwPNxXhr5ByTDig5HdZl7AaexU",
-  authDomain: "gen-lang-client-0216449585.firebaseapp.com",
-  firestoreDatabaseId: "ai-studio-sigijewelrymanuf-940c2757-2772-4107-b989-812127d6c530",
-  storageBucket: "gen-lang-client-0216449585.firebasestorage.app",
-  messagingSenderId: "54693547741"
+  projectId: process.env.FIREBASE_PROJECT_ID || "gen-lang-client-0216449585",
+  appId: process.env.FIREBASE_APP_ID || "1:54693547741:web:ed3b6eb9a03a4020b8d534",
+  apiKey: process.env.FIREBASE_API_KEY || "AIzaSyBJL8juPWwPNxXhr5ByTDig5HdZl7AaexU",
+  authDomain: process.env.FIREBASE_AUTH_DOMAIN || "gen-lang-client-0216449585.firebaseapp.com",
+  firestoreDatabaseId: process.env.FIREBASE_DATABASE_ID || "ai-studio-sigijewelrymanuf-940c2757-2772-4107-b989-812127d6c530",
+  storageBucket: process.env.FIREBASE_STORAGE_BUCKET || "gen-lang-client-0216449585.firebasestorage.app",
+  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || "54693547741"
 };
 
 try {
