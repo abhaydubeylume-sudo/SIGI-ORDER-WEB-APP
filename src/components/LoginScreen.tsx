@@ -7,6 +7,8 @@ interface LoginScreenProps {
 }
 
 export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
+  const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
+  
   // Modes: 'login' | 'register' | 'changePassword'
   const [mode, setMode] = useState<'login' | 'register' | 'changePassword'>('login');
   
@@ -57,7 +59,11 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       // Handle Redirection Errors during deployment
       if (response.redirected) {
         console.warn("Redirection detected during login to:", response.url);
-        setError('A secure HTTPS or routing redirect was detected. Please ensure you are logged in or reload the page.');
+        if (isInIframe) {
+          setError('Browser security blocked the login session cookie inside the preview iframe. Please click the "Open in new tab" button at the top right of your screen to access the app.');
+        } else {
+          setError('A secure HTTPS or routing redirect was detected. Please ensure you are logged in or reload the page.');
+        }
         setLoading(false);
         return;
       }
@@ -67,7 +73,11 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       if (!contentType.includes('application/json')) {
         const textResponse = await response.text();
         console.error("Non-JSON auth response received:", textResponse.substring(0, 150));
-        setError('Received an unexpected non-JSON response from the server. This may indicate a deployment redirection, gateway routing issue, or missing API resource.');
+        if (isInIframe) {
+          setError('Browser security blocked the login session cookie inside the preview iframe. Please click the "Open in new tab" button at the top right of your screen to log in.');
+        } else {
+          setError('Received an unexpected non-JSON response from the server. This may indicate a deployment redirection, gateway routing issue, or missing API resource.');
+        }
         setLoading(false);
         return;
       }
@@ -241,6 +251,25 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         {/* Form Box Panel */}
         <div className="md:col-span-7 bg-white dark:bg-gray-900 p-8 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-800 space-y-8">
           
+          {isInIframe && (
+            <div className="p-3 bg-amber-50 border-l-4 border-amber-500 text-amber-800 dark:bg-amber-950/20 dark:text-amber-400 text-xs rounded flex flex-col gap-1.5 shadow-sm">
+              <span className="font-semibold flex items-center gap-1 text-amber-800 dark:text-amber-400">
+                ⚠️ Running in Preview IFrame
+              </span>
+              <p className="text-gray-700 dark:text-gray-300">
+                Modern browsers block login cookies in iframes. Please click the <strong>Open in new tab</strong> button at the top-right of your screen or click the link below to access the ERP:
+              </p>
+              <a 
+                href={typeof window !== 'undefined' ? window.location.href : '#'} 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className="mt-1 font-bold text-blue-600 dark:text-blue-400 underline hover:text-blue-700"
+              >
+                Open SIGI ERP in New Tab →
+              </a>
+            </div>
+          )}
+
           {error && (
             <div className="p-3 bg-red-50 border-l-4 border-red-500 text-red-700 dark:bg-red-950/20 dark:text-red-400 text-sm rounded">
               {error}
